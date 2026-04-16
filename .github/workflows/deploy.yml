@@ -1,0 +1,97 @@
+name: Deploy to NHN Cloud
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.NHN_HOST }}
+          username: ${{ secrets.NHN_USERNAME }}
+          key: ${{ secrets.NHN_KEY }}
+          port: 22
+          script_stop: true
+          script: |
+            set -e
+
+            APP_DIR="$HOME/app"
+
+            if [ ! -d "$APP_DIR" ]; then
+              mkdir -p "$APP_DIR"
+            fi
+
+            cd "$APP_DIR"
+
+            # 최초 1회용(서버에 이미 clone 되어있지 않을 때)
+            if [ ! -d ".git" ]; then
+              git clone "https://github.com/${{ github.repository }}.git" .
+            fi
+
+            git fetch --all
+            git checkout main
+            git pull origin main
+
+            # --------
+            # Python(FastAPI) 배포: gunicorn 실행
+            # --------
+            BACKEND_DIR=""
+            if [ -f "diary-app/backend/requirements.txt" ]; then
+              BACKEND_DIR="diary-app/backend"
+            elif [ -f "backend/requirements.txt" ]; then
+              BACKEND_DIR="backend"
+            fi
+
+            if [ -n "$BACKEND_DIR" ]; then
+              cd "$APP_DIR/$BACKEND_DIR"
+
+              python3 -m pip install --upgrade pip
+              if [ ! -d "venv" ]; then
+                python3 -m venv venv
+              fi
+
+              . venv/bin/activate
+
+              pip install -r requirements.txt
+              pip install gunicorn
+
+              # 기존 프로세스가 떠있으면 재시작
+              pkill -f "gunicorn.*app\.main:app" || true
+
+              nohup gunicorn app.main:app \
+                -k uvicorn.workers.UvicornWorker \
+                -w 2 \
+                -b 0.0.0.0:8080 \
+                --log-level info \
+                > gunicorn.out.log 2>&1 &
+            fi
+
+            # --------
+            # Node(Vite) 배포: pm2 실행
+            # --------
+            FRONT_DIR=""
+            if [ -f "diary-app/frontend/package.json" ]; then
+              FRONT_DIR="diary-app/frontend"
+            elif [ -f "frontend/package.json" ]; then
+              FRONT_DIR="frontend"
+            fi
+
+            if [ -n "$FRONT_DIR" ]; then
+              cd "$APP_DIR/$FRONT_DIR"
+
+              npm install
+              npm run build
+
+              if ! command -v pm2 >/dev/null 2>&1; then
+                npm install -g pm2
+              fi
+
+              pm2 delete diary-frontend || true
+              pm2 start npm --name diary-frontend -- run preview -- --host 0.0.0.0 --port 5173
+              pm2 save || true
+            fi
+

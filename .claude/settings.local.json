@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 --version)",
+      "Bash(python --version)",
+      "Bash(python3 -m venv venv)",
+      "Bash(sudo apt *)",
+      "Bash(pip3 show *)",
+      "Bash(pip3 install *)",
+      "Bash(python3 -m pip install --quiet alembic sqlalchemy pymysql)",
+      "Bash(python3 -m ensurepip --upgrade)",
+      "Bash(curl -sS https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py)",
+      "Bash(python3 /tmp/get-pip.py --user)",
+      "Bash(python3 /tmp/get-pip.py --user --break-system-packages)",
+      "Bash(~/.local/bin/pip install *)",
+      "Bash(DATABASE_URL=mysql+pymysql://diary_user:diary_password@127.0.0.1:3306/diary_app ~/.local/bin/alembic upgrade *)",
+      "Bash(python3 *)",
+      "Bash('~/.local/bin/pip' install *)",
+      "Bash(~/.local/bin/uvicorn app.main:app --reload --host 0.0.0.0 --port 8000)",
+      "Bash(curl -s http://localhost:8000/)",
+      "Bash(grep *)",
+      "Bash(sed -i 's|\"/:id/leave\"|\"/{id}/leave\"|g; s|\"/:id\"|\"/{id}\"|g; s|\"/invite/:token\"|\"/invite/{token}\"|g' /mnt/c/Users/leehe/OneDrive/Desktop/playground/diary-app/backend/app/routers/groups.py)",
+      "Bash(sed -i 's|\"/:id\"|\"/{id}\"|g' /mnt/c/Users/leehe/OneDrive/Desktop/playground/diary-app/backend/app/routers/posts.py)",
+      "Bash(sed -i 's|\"/post/:post_id\"|\"/post/{post_id}\"|g; s|\"/:id\"|\"/{id}\"|g' /mnt/c/Users/leehe/OneDrive/Desktop/playground/diary-app/backend/app/routers/comments.py)",
+      "Bash(sed -i 's|\"/:post_id\"|\"/{post_id}\"|g' /mnt/c/Users/leehe/OneDrive/Desktop/playground/diary-app/backend/app/routers/likes.py)",
+      "Bash(curl -s -X POST http://localhost:8000/api/auth/register -H 'Content-Type: application/json' -d '{\"name\":\"테스트\",\"email\":\"test@test.com\",\"phone\":\"010-1234-5678\",\"password\":\"testpass1\"}')",
+      "Bash(curl -s -X POST http://localhost:8000/api/auth/login -H 'Content-Type: application/json' -d '{\"email\":\"test@test.com\",\"password\":\"testpass1\"}')",
+      "Bash(find /mnt/c/Users/leehe/OneDrive/Desktop/playground/diary-app/frontend/src -name '*.jsx' -exec sed -i s/bg-primary-100/bg-primary-200/g '{}' ';')",
+      "Bash(find /mnt/c/Users/leehe/OneDrive/Desktop/playground/diary-app/frontend/src -name '*.jsx' -exec sed -i 's/text-primary-600/text-point/g; *)",
+      "Bash(find /mnt/c/Users/leehe/OneDrive/Desktop/playground/diary-app/frontend/src -name '*.jsx' -exec sed -i 's/text-primary-700/text-accent/g; *)",
+      "Bash(find /mnt/c/Users/leehe/OneDrive/Desktop/playground/diary-app/frontend/src -name '*.jsx' -exec sed -i s/bg-primary-500/bg-primary-400/g '{}' ';')",
+      "Bash(find /mnt/c/Users/leehe/OneDrive/Desktop/playground/diary-app/frontend/src -name '*.jsx' -exec sed -i s/border-primary-500/border-primary-400/g '{}' ';')"
+    ]
+  }
+}

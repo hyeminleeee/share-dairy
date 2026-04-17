@@ -2,22 +2,28 @@ name: Deploy to NHN Cloud
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
 
 jobs:
-  deploy:
+  deploy_prod:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
-      - name: Deploy via SSH
+      - name: Deploy PROD
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.NHN_HOST }}
-          username: ${{ secrets.NHN_USERNAME }}
-          key: ${{ secrets.NHN_KEY }}
+          host: ${{ secrets.PROD_NHN_HOST }}
+          username: ${{ secrets.PROD_NHN_USERNAME }}
+          key: ${{ secrets.PROD_NHN_KEY }}
           port: 22
+          timeout: 45m
+          command_timeout: 45m
           script_stop: true
           script: |
             set -e
+
+            export APP_ENV="production"
+            export CI=true
 
             APP_DIR="$HOME/app"
 
@@ -59,15 +65,24 @@ jobs:
               pip install -r requirements.txt
               pip install gunicorn
 
-              # 기존 프로세스가 떠있으면 재시작
-              pkill -f "gunicorn.*app\.main:app" || true
+              # PID 파일로 기존 프로세스만 정확히 종료 (pkill -f 는 스크립트 자신을 죽이는 버그 있음)
+              GUNICORN_PID_FILE="/tmp/gunicorn_${APP_ENV}.pid"
+              if [ -f "$GUNICORN_PID_FILE" ]; then
+                kill "$(cat "$GUNICORN_PID_FILE")" 2>/dev/null || true
+                rm -f "$GUNICORN_PID_FILE"
+                sleep 1
+              fi
+              # 포트가 여전히 사용 중이면 강제 해제
+              fuser -k 8080/tcp 2>/dev/null || true
 
-              nohup gunicorn app.main:app \
+              setsid nohup gunicorn app.main:app \
                 -k uvicorn.workers.UvicornWorker \
                 -w 2 \
                 -b 0.0.0.0:8080 \
+                --pid "$GUNICORN_PID_FILE" \
                 --log-level info \
-                > gunicorn.out.log 2>&1 &
+                > "gunicorn.out.${APP_ENV}.log" 2>&1 < /dev/null &
+              echo "Gunicorn started (detached): $!"
             fi
 
             # --------
@@ -83,15 +98,158 @@ jobs:
             if [ -n "$FRONT_DIR" ]; then
               cd "$APP_DIR/$FRONT_DIR"
 
-              npm install
-              npm run build
+              # 빌드 시 VITE_API_BASE_URL 주입 (빌드 타임에 번들에 포함됨)
+              echo "VITE_API_BASE_URL=http://${{ secrets.PROD_NHN_HOST }}:8080" > .env
+
+              # npm 설치 로그는 간소화하고, 실패 시에만 끝부분을 보여줌
+              if [ -f "package-lock.json" ]; then
+                NPM_CMD="npm ci"
+              else
+                NPM_CMD="npm install"
+              fi
+
+              if ! $NPM_CMD --silent --no-progress > "/tmp/npm-install.${APP_ENV}.log" 2>&1; then
+                echo "npm install failed. Tail:"
+                tail -n 80 "/tmp/npm-install.${APP_ENV}.log" || true
+                exit 1
+              fi
+
+              if ! npm run build --silent > "/tmp/npm-build.${APP_ENV}.log" 2>&1; then
+                echo "npm build failed. Tail:"
+                tail -n 80 "/tmp/npm-build.${APP_ENV}.log" || true
+                exit 1
+              fi
 
               if ! command -v pm2 >/dev/null 2>&1; then
                 npm install -g pm2
               fi
 
-              pm2 delete diary-frontend || true
-              pm2 start npm --name diary-frontend -- run preview -- --host 0.0.0.0 --port 5173
-              pm2 save || true
+              pm2 delete diary-frontend >/dev/null 2>&1 || true
+              pm2 start npm --name diary-frontend -- run preview >/dev/null 2>&1
+              pm2 save >/dev/null 2>&1 || true
+            fi
+
+  deploy_dev:
+    if: github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy DEV
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEV_NHN_HOST }}
+          username: ${{ secrets.DEV_NHN_USERNAME }}
+          key: ${{ secrets.DEV_NHN_KEY }}
+          port: 22
+          timeout: 45m
+          command_timeout: 45m
+          script_stop: true
+          script: |
+            set -e
+
+            export APP_ENV="development"
+            export CI=true
+
+            APP_DIR="$HOME/app"
+
+            if [ ! -d "$APP_DIR" ]; then
+              mkdir -p "$APP_DIR"
+            fi
+
+            cd "$APP_DIR"
+
+            # 최초 1회용(서버에 이미 clone 되어있지 않을 때)
+            if [ ! -d ".git" ]; then
+              git clone "https://github.com/${{ github.repository }}.git" .
+            fi
+
+            git fetch --all
+            git checkout develop
+            git pull origin develop
+
+            # --------
+            # Python(FastAPI) 배포: gunicorn 실행
+            # --------
+            BACKEND_DIR=""
+            if [ -f "diary-app/backend/requirements.txt" ]; then
+              BACKEND_DIR="diary-app/backend"
+            elif [ -f "backend/requirements.txt" ]; then
+              BACKEND_DIR="backend"
+            fi
+
+            if [ -n "$BACKEND_DIR" ]; then
+              cd "$APP_DIR/$BACKEND_DIR"
+
+              python3 -m pip install --upgrade pip
+              if [ ! -d "venv" ]; then
+                python3 -m venv venv
+              fi
+
+              . venv/bin/activate
+
+              pip install -r requirements.txt
+              pip install gunicorn
+
+              # PID 파일로 기존 프로세스만 정확히 종료 (pkill -f 는 스크립트 자신을 죽이는 버그 있음)
+              GUNICORN_PID_FILE="/tmp/gunicorn_${APP_ENV}.pid"
+              if [ -f "$GUNICORN_PID_FILE" ]; then
+                kill "$(cat "$GUNICORN_PID_FILE")" 2>/dev/null || true
+                rm -f "$GUNICORN_PID_FILE"
+                sleep 1
+              fi
+              # 포트가 여전히 사용 중이면 강제 해제
+              fuser -k 8080/tcp 2>/dev/null || true
+
+              setsid nohup gunicorn app.main:app \
+                -k uvicorn.workers.UvicornWorker \
+                -w 2 \
+                -b 0.0.0.0:8080 \
+                --pid "$GUNICORN_PID_FILE" \
+                --log-level info \
+                > "gunicorn.out.${APP_ENV}.log" 2>&1 < /dev/null &
+              echo "Gunicorn started (detached): $!"
+            fi
+
+            # --------
+            # Node(Vite) 배포: pm2 실행
+            # --------
+            FRONT_DIR=""
+            if [ -f "diary-app/frontend/package.json" ]; then
+              FRONT_DIR="diary-app/frontend"
+            elif [ -f "frontend/package.json" ]; then
+              FRONT_DIR="frontend"
+            fi
+
+            if [ -n "$FRONT_DIR" ]; then
+              cd "$APP_DIR/$FRONT_DIR"
+
+              # 빌드 시 VITE_API_BASE_URL 주입 (빌드 타임에 번들에 포함됨)
+              echo "VITE_API_BASE_URL=http://${{ secrets.DEV_NHN_HOST }}:8080" > .env
+
+              # npm 설치 로그는 간소화하고, 실패 시에만 끝부분을 보여줌
+              if [ -f "package-lock.json" ]; then
+                NPM_CMD="npm ci"
+              else
+                NPM_CMD="npm install"
+              fi
+
+              if ! $NPM_CMD --silent --no-progress > "/tmp/npm-install.${APP_ENV}.log" 2>&1; then
+                echo "npm install failed. Tail:"
+                tail -n 80 "/tmp/npm-install.${APP_ENV}.log" || true
+                exit 1
+              fi
+
+              if ! npm run build --silent > "/tmp/npm-build.${APP_ENV}.log" 2>&1; then
+                echo "npm build failed. Tail:"
+                tail -n 80 "/tmp/npm-build.${APP_ENV}.log" || true
+                exit 1
+              fi
+
+              if ! command -v pm2 >/dev/null 2>&1; then
+                npm install -g pm2
+              fi
+
+              pm2 delete diary-frontend >/dev/null 2>&1 || true
+              pm2 start npm --name diary-frontend -- run preview >/dev/null 2>&1
+              pm2 save >/dev/null 2>&1 || true
             fi
 

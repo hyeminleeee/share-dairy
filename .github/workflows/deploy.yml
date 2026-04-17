@@ -65,24 +65,23 @@ jobs:
               pip install -r requirements.txt
               pip install gunicorn
 
-              # 기존 프로세스가 떠있으면 재시작
-              pkill -f "gunicorn.*app\.main:app" || true
-
-              if command -v setsid >/dev/null 2>&1; then
-                setsid nohup gunicorn app.main:app \
-                  -k uvicorn.workers.UvicornWorker \
-                  -w 2 \
-                  -b 0.0.0.0:8080 \
-                  --log-level info \
-                  > "gunicorn.out.${APP_ENV}.log" 2>&1 < /dev/null &
-              else
-                nohup gunicorn app.main:app \
-                  -k uvicorn.workers.UvicornWorker \
-                  -w 2 \
-                  -b 0.0.0.0:8080 \
-                  --log-level info \
-                  > "gunicorn.out.${APP_ENV}.log" 2>&1 < /dev/null &
+              # PID 파일로 기존 프로세스만 정확히 종료 (pkill -f 는 스크립트 자신을 죽이는 버그 있음)
+              GUNICORN_PID_FILE="/tmp/gunicorn_${APP_ENV}.pid"
+              if [ -f "$GUNICORN_PID_FILE" ]; then
+                kill "$(cat "$GUNICORN_PID_FILE")" 2>/dev/null || true
+                rm -f "$GUNICORN_PID_FILE"
+                sleep 1
               fi
+              # 포트가 여전히 사용 중이면 강제 해제
+              fuser -k 8080/tcp 2>/dev/null || true
+
+              setsid nohup gunicorn app.main:app \
+                -k uvicorn.workers.UvicornWorker \
+                -w 2 \
+                -b 0.0.0.0:8080 \
+                --pid "$GUNICORN_PID_FILE" \
+                --log-level info \
+                > "gunicorn.out.${APP_ENV}.log" 2>&1 < /dev/null &
               echo "Gunicorn started (detached): $!"
             fi
 
@@ -190,24 +189,23 @@ jobs:
               pip install -r requirements.txt
               pip install gunicorn
 
-              # 기존 프로세스가 떠있으면 재시작
-              pkill -f "gunicorn.*app\.main:app" || true
-
-              if command -v setsid >/dev/null 2>&1; then
-                setsid nohup gunicorn app.main:app \
-                  -k uvicorn.workers.UvicornWorker \
-                  -w 2 \
-                  -b 0.0.0.0:8080 \
-                  --log-level info \
-                  > "gunicorn.out.${APP_ENV}.log" 2>&1 < /dev/null &
-              else
-                nohup gunicorn app.main:app \
-                  -k uvicorn.workers.UvicornWorker \
-                  -w 2 \
-                  -b 0.0.0.0:8080 \
-                  --log-level info \
-                  > "gunicorn.out.${APP_ENV}.log" 2>&1 < /dev/null &
+              # PID 파일로 기존 프로세스만 정확히 종료 (pkill -f 는 스크립트 자신을 죽이는 버그 있음)
+              GUNICORN_PID_FILE="/tmp/gunicorn_${APP_ENV}.pid"
+              if [ -f "$GUNICORN_PID_FILE" ]; then
+                kill "$(cat "$GUNICORN_PID_FILE")" 2>/dev/null || true
+                rm -f "$GUNICORN_PID_FILE"
+                sleep 1
               fi
+              # 포트가 여전히 사용 중이면 강제 해제
+              fuser -k 8080/tcp 2>/dev/null || true
+
+              setsid nohup gunicorn app.main:app \
+                -k uvicorn.workers.UvicornWorker \
+                -w 2 \
+                -b 0.0.0.0:8080 \
+                --pid "$GUNICORN_PID_FILE" \
+                --log-level info \
+                > "gunicorn.out.${APP_ENV}.log" 2>&1 < /dev/null &
               echo "Gunicorn started (detached): $!"
             fi
 

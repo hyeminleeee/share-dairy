@@ -16,11 +16,14 @@ jobs:
           username: ${{ secrets.PROD_NHN_USERNAME }}
           key: ${{ secrets.PROD_NHN_KEY }}
           port: 22
+          timeout: 45m
+          command_timeout: 45m
           script_stop: true
           script: |
             set -e
 
             export APP_ENV="production"
+            export CI=true
 
             APP_DIR="$HOME/app"
 
@@ -65,12 +68,22 @@ jobs:
               # 기존 프로세스가 떠있으면 재시작
               pkill -f "gunicorn.*app\.main:app" || true
 
-              nohup gunicorn app.main:app \
-                -k uvicorn.workers.UvicornWorker \
-                -w 2 \
-                -b 0.0.0.0:8080 \
-                --log-level info \
-                > gunicorn.out.log 2>&1 &
+              if command -v setsid >/dev/null 2>&1; then
+                setsid nohup gunicorn app.main:app \
+                  -k uvicorn.workers.UvicornWorker \
+                  -w 2 \
+                  -b 0.0.0.0:8080 \
+                  --log-level info \
+                  > "gunicorn.out.${APP_ENV}.log" 2>&1 < /dev/null &
+              else
+                nohup gunicorn app.main:app \
+                  -k uvicorn.workers.UvicornWorker \
+                  -w 2 \
+                  -b 0.0.0.0:8080 \
+                  --log-level info \
+                  > "gunicorn.out.${APP_ENV}.log" 2>&1 < /dev/null &
+              fi
+              echo "Gunicorn started (detached): $!"
             fi
 
             # --------
@@ -86,16 +99,35 @@ jobs:
             if [ -n "$FRONT_DIR" ]; then
               cd "$APP_DIR/$FRONT_DIR"
 
-              npm install
-              npm run build
+              # 빌드 시 VITE_API_BASE_URL 주입 (빌드 타임에 번들에 포함됨)
+              echo "VITE_API_BASE_URL=http://${{ secrets.PROD_NHN_HOST }}:8080" > .env
+
+              # npm 설치 로그는 간소화하고, 실패 시에만 끝부분을 보여줌
+              if [ -f "package-lock.json" ]; then
+                NPM_CMD="npm ci"
+              else
+                NPM_CMD="npm install"
+              fi
+
+              if ! $NPM_CMD --silent --no-progress > "/tmp/npm-install.${APP_ENV}.log" 2>&1; then
+                echo "npm install failed. Tail:"
+                tail -n 80 "/tmp/npm-install.${APP_ENV}.log" || true
+                exit 1
+              fi
+
+              if ! npm run build --silent > "/tmp/npm-build.${APP_ENV}.log" 2>&1; then
+                echo "npm build failed. Tail:"
+                tail -n 80 "/tmp/npm-build.${APP_ENV}.log" || true
+                exit 1
+              fi
 
               if ! command -v pm2 >/dev/null 2>&1; then
                 npm install -g pm2
               fi
 
-              pm2 delete diary-frontend || true
-              pm2 start npm --name diary-frontend -- run preview -- --host 0.0.0.0 --port 5173
-              pm2 save || true
+              pm2 delete diary-frontend >/dev/null 2>&1 || true
+              pm2 start npm --name diary-frontend -- run preview >/dev/null 2>&1
+              pm2 save >/dev/null 2>&1 || true
             fi
 
   deploy_dev:
@@ -109,11 +141,14 @@ jobs:
           username: ${{ secrets.DEV_NHN_USERNAME }}
           key: ${{ secrets.DEV_NHN_KEY }}
           port: 22
+          timeout: 45m
+          command_timeout: 45m
           script_stop: true
           script: |
             set -e
 
             export APP_ENV="development"
+            export CI=true
 
             APP_DIR="$HOME/app"
 
@@ -158,12 +193,22 @@ jobs:
               # 기존 프로세스가 떠있으면 재시작
               pkill -f "gunicorn.*app\.main:app" || true
 
-              nohup gunicorn app.main:app \
-                -k uvicorn.workers.UvicornWorker \
-                -w 2 \
-                -b 0.0.0.0:8080 \
-                --log-level info \
-                > gunicorn.out.log 2>&1 &
+              if command -v setsid >/dev/null 2>&1; then
+                setsid nohup gunicorn app.main:app \
+                  -k uvicorn.workers.UvicornWorker \
+                  -w 2 \
+                  -b 0.0.0.0:8080 \
+                  --log-level info \
+                  > "gunicorn.out.${APP_ENV}.log" 2>&1 < /dev/null &
+              else
+                nohup gunicorn app.main:app \
+                  -k uvicorn.workers.UvicornWorker \
+                  -w 2 \
+                  -b 0.0.0.0:8080 \
+                  --log-level info \
+                  > "gunicorn.out.${APP_ENV}.log" 2>&1 < /dev/null &
+              fi
+              echo "Gunicorn started (detached): $!"
             fi
 
             # --------
@@ -179,15 +224,34 @@ jobs:
             if [ -n "$FRONT_DIR" ]; then
               cd "$APP_DIR/$FRONT_DIR"
 
-              npm install
-              npm run build
+              # 빌드 시 VITE_API_BASE_URL 주입 (빌드 타임에 번들에 포함됨)
+              echo "VITE_API_BASE_URL=http://${{ secrets.DEV_NHN_HOST }}:8080" > .env
+
+              # npm 설치 로그는 간소화하고, 실패 시에만 끝부분을 보여줌
+              if [ -f "package-lock.json" ]; then
+                NPM_CMD="npm ci"
+              else
+                NPM_CMD="npm install"
+              fi
+
+              if ! $NPM_CMD --silent --no-progress > "/tmp/npm-install.${APP_ENV}.log" 2>&1; then
+                echo "npm install failed. Tail:"
+                tail -n 80 "/tmp/npm-install.${APP_ENV}.log" || true
+                exit 1
+              fi
+
+              if ! npm run build --silent > "/tmp/npm-build.${APP_ENV}.log" 2>&1; then
+                echo "npm build failed. Tail:"
+                tail -n 80 "/tmp/npm-build.${APP_ENV}.log" || true
+                exit 1
+              fi
 
               if ! command -v pm2 >/dev/null 2>&1; then
                 npm install -g pm2
               fi
 
-              pm2 delete diary-frontend || true
-              pm2 start npm --name diary-frontend -- run preview -- --host 0.0.0.0 --port 5173
-              pm2 save || true
+              pm2 delete diary-frontend >/dev/null 2>&1 || true
+              pm2 start npm --name diary-frontend -- run preview >/dev/null 2>&1
+              pm2 save >/dev/null 2>&1 || true
             fi
 
